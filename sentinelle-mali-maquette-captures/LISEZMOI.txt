@@ -1,0 +1,8 @@
+Sentinelle Mali — Maquette interactive
+Captures d'écran haute fidélité (échelle x2, 780×1688 px).
+Généré le 03/10/2026 13:36:06
+
+Écrans : splash, onboarding, permissions, langue, accès, accueil,
+analyse (4 modes), analyse en cours, résultats (4 niveaux),
+signalement, historique, guide victime, arnaques courantes,
+données personnelles, quiz, profil.
