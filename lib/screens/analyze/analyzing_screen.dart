@@ -60,8 +60,8 @@ class _AnalyzingScreenState extends State<AnalyzingScreen> with SingleTickerProv
     });
   }
 
-  void _onAnalysisFinished() {
-    final result = context.read<AppState>().analyzeInput(
+  Future<void> _onAnalysisFinished() async {
+    final result = await context.read<AppState>().analyzeInput(
           type: widget.type,
           content: widget.content,
           askPin: widget.askPin,
@@ -70,9 +70,9 @@ class _AnalyzingScreenState extends State<AnalyzingScreen> with SingleTickerProv
           situationTag: widget.situationTag,
         );
 
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (!mounted) return;
-      if (result.isStopAlert) {
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
+    if (result.isStopAlert) {
         // Show critical stop alert modal
         Navigator.of(context).pushReplacement(
           PageRouteBuilder(
@@ -91,7 +91,6 @@ class _AnalyzingScreenState extends State<AnalyzingScreen> with SingleTickerProv
           ),
         );
       }
-    });
   }
 
   @override

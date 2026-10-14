@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
+import '../services/api_exception.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
 import '../widgets/djenne_logo.dart';
@@ -16,71 +16,65 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  String _enteredPin = '';
+  final _formKey = GlobalKey<FormState>();
+  final _identifierController = TextEditingController();
+  final _passwordController = TextEditingController();
   bool _isBambara = false;
   bool _isLoading = false;
+  bool _obscurePassword = true;
 
-  void _onDigitPressed(String digit) {
-    if (_enteredPin.length < 4) {
-      HapticFeedback.lightImpact();
-      setState(() {
-        _enteredPin += digit;
-      });
-
-      if (_enteredPin.length == 4) {
-        _verifyAndLogin();
-      }
-    }
+  @override
+  void dispose() {
+    _identifierController.dispose();
+    _passwordController.dispose();
+    super.dispose();
   }
 
-  void _onDeletePressed() {
-    if (_enteredPin.isNotEmpty) {
-      HapticFeedback.lightImpact();
-      setState(() {
-        _enteredPin = _enteredPin.substring(0, _enteredPin.length - 1);
-      });
-    }
-  }
-
-  void _verifyAndLogin() async {
+  Future<void> _submitLogin() async {
+    if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 400));
-    if (!mounted) return;
-
-    final appState = Provider.of<AppState>(context, listen: false);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppColors.primaryGreen,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle_rounded, color: Colors.white),
-            const SizedBox(width: 10),
-            Text(
-              _isBambara
-                  ? 'I bisimila kɔnɔ, ${appState.userName}!'
-                  : 'Bon retour, ${appState.userName} !',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ],
+    try {
+      await context.read<AppState>().login(
+            _identifierController.text.trim(),
+            _passwordController.text,
+          );
+      if (!mounted) return;
+      final appState = context.read<AppState>();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.primaryGreen,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle_rounded, color: Colors.white),
+              const SizedBox(width: 10),
+              Text(
+                _isBambara
+                    ? 'I bisimila kɔnɔ, ${appState.userName}!'
+                    : 'Bon retour, ${appState.userName} !',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
         ),
-      ),
-    );
-
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (context) => const MainScreen()),
-      (route) => false,
-    );
-  }
-
-  void _triggerBiometrics() async {
-    HapticFeedback.mediumImpact();
-    setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (!mounted) return;
-    _verifyAndLogin();
+      );
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const MainScreen()),
+        (route) => false,
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.riskCritical,
+          behavior: SnackBarBehavior.floating,
+          content: Text(e.message),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -135,150 +129,113 @@ class _LoginScreenState extends State<LoginScreen> {
         ],
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // Top Section: Title & Subtitle & PIN Dots
-              Column(
-                children: [
-                  const SizedBox(height: 12),
-                  // Icon
-                  Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      color: AppColors.ochre.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.ochre.withValues(alpha: 0.3)),
-                    ),
-                    child: const Icon(
-                      Icons.lock_person_rounded,
-                      color: AppColors.ochreDark,
-                      size: 32,
-                    ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              children: [
+                const SizedBox(height: 12),
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: AppColors.ochre.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.ochre.withValues(alpha: 0.3)),
                   ),
-                  const SizedBox(height: 16),
-
-                  Text(
-                    _isBambara ? 'Don i ka kɔnti kɔnɔ' : 'Connexion sécurisée',
-                    style: AppTypography.displayLarge.copyWith(
-                      fontSize: 26,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.5,
-                    ),
+                  child: const Icon(
+                    Icons.lock_person_rounded,
+                    color: AppColors.ochreDark,
+                    size: 32,
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _isBambara
-                        ? 'I ka gundo-kode (PIN) chiffres 4 sɛbɛn'
-                        : 'Entrez votre code secret PIN à 4 chiffres',
-                    style: AppTypography.bodyMedium.copyWith(
-                      color: AppColors.textSecondary,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // PIN Dots
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(4, (index) {
-                      final isFilled = index < _enteredPin.length;
-                      return AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        margin: const EdgeInsets.symmetric(horizontal: 12),
-                        width: isFilled ? 22 : 18,
-                        height: isFilled ? 22 : 18,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: isFilled ? AppColors.primaryGreen : Colors.transparent,
-                          border: Border.all(
-                            color: isFilled ? AppColors.primaryGreen : AppColors.cardBorder,
-                            width: 2.2,
-                          ),
-                          boxShadow: isFilled
-                              ? [
-                                  BoxShadow(
-                                    color: AppColors.primaryGreen.withValues(alpha: 0.35),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ]
-                              : null,
-                        ),
-                      );
-                    }),
-                  ),
-                  if (_isLoading) ...[
-                    const SizedBox(height: 16),
-                    const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: AppColors.primaryGreen,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-
-              // Middle: Numeric Keypad
-              Container(
-                constraints: const BoxConstraints(maxWidth: 320),
-                child: Column(
-                  children: [
-                    _buildKeypadRow(['1', '2', '3']),
-                    const SizedBox(height: 12),
-                    _buildKeypadRow(['4', '5', '6']),
-                    const SizedBox(height: 12),
-                    _buildKeypadRow(['7', '8', '9']),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        // Biometrics button
-                        _buildKeypadButton(
-                          child: const Icon(
-                            Icons.fingerprint_rounded,
-                            size: 28,
-                            color: AppColors.primaryGreen,
-                          ),
-                          onTap: _triggerBiometrics,
-                        ),
-                        // '0'
-                        _buildKeypadButton(
-                          child: const Text(
-                            '0',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.textPrimary,
-                            ),
-                          ),
-                          onTap: () => _onDigitPressed('0'),
-                        ),
-                        // Delete button
-                        _buildKeypadButton(
-                          child: const Icon(
-                            Icons.backspace_outlined,
-                            size: 24,
-                            color: AppColors.textSecondary,
-                          ),
-                          onTap: _onDeletePressed,
-                        ),
-                      ],
-                    ),
-                  ],
                 ),
-              ),
-
-              // Bottom Section: Create account fallback link
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: TextButton(
+                const SizedBox(height: 16),
+                Text(
+                  _isBambara ? 'Don i ka kɔnti kɔnō' : 'Connexion sécurisée',
+                  style: AppTypography.displayLarge.copyWith(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _isBambara
+                      ? 'I tɔgō walima email ni i ka gundo-kode don'
+                      : 'Identifiant ou e-mail, puis mot de passe',
+                  style: AppTypography.bodyMedium.copyWith(
+                    color: AppColors.textSecondary,
+                    fontSize: 14,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 28),
+                TextFormField(
+                  controller: _identifierController,
+                  textInputAction: TextInputAction.next,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return _isBambara ? 'I tɔgō walima email don' : 'Identifiant ou e-mail requis';
+                    }
+                    return null;
+                  },
+                  decoration: InputDecoration(
+                    hintText: _isBambara ? 'Tɔgō walima email' : 'Identifiant ou e-mail',
+                    prefixIcon: const Icon(Icons.person_outline_rounded, color: AppColors.primaryGreen),
+                    filled: true,
+                    fillColor: const Color(0xFFF9FAFB),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _passwordController,
+                  obscureText: _obscurePassword,
+                  onFieldSubmitted: (_) => _submitLogin(),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return _isBambara ? 'Gundo-kode don' : 'Mot de passe requis';
+                    }
+                    return null;
+                  },
+                  decoration: InputDecoration(
+                    hintText: _isBambara ? 'Gundo-kode' : 'Mot de passe',
+                    prefixIcon: const Icon(Icons.lock_outline_rounded, color: AppColors.ochre),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                        color: AppColors.textSecondary,
+                      ),
+                      onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                    ),
+                    filled: true,
+                    fillColor: const Color(0xFFF9FAFB),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: _isLoading ? null : _submitLogin,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primaryGreen,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(56),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          height: 24,
+                          width: 24,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                        )
+                      : Text(
+                          _isBambara ? 'Don kɔnō' : 'Se connecter',
+                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                        ),
+                ),
+                const SizedBox(height: 16),
+                TextButton(
                   onPressed: () {
                     Navigator.of(context).pushReplacement(
                       MaterialPageRoute(builder: (context) => const RegisterScreen()),
@@ -286,11 +243,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   },
                   child: RichText(
                     text: TextSpan(
-                      text: _isBambara ? 'Kɔnti t’i fɛ fɔlɔ ? ' : 'Pas encore de compte ? ',
+                      text: _isBambara ? 'Kɔnti t’i fɛ fɔlō ? ' : 'Pas encore de compte ? ',
                       style: TextStyle(color: Colors.grey.shade700, fontSize: 13.5),
                       children: [
                         TextSpan(
-                          text: _isBambara ? 'Kura dabɔ' : 'Créer un compte',
+                          text: _isBambara ? 'Kura dabō' : 'Créer un compte',
                           style: const TextStyle(
                             color: AppColors.primaryGreen,
                             fontWeight: FontWeight.w800,
@@ -300,56 +257,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildKeypadRow(List<String> digits) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: digits.map((d) {
-        return _buildKeypadButton(
-          child: Text(
-            d,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: AppColors.textPrimary,
+              ],
             ),
           ),
-          onTap: () => _onDigitPressed(d),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildKeypadButton({
-    required Widget child,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(35),
-      child: Container(
-        width: 68,
-        height: 68,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          shape: BoxShape.circle,
-          border: Border.all(color: AppColors.cardBorder, width: 1.1),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
         ),
-        child: Center(child: child),
       ),
     );
   }

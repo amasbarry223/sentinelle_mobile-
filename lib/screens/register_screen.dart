@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
+import '../services/api_exception.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
 import '../widgets/djenne_logo.dart';
@@ -17,6 +18,7 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _pinController = TextEditingController();
   final _confirmPinController = TextEditingController();
@@ -31,6 +33,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   void dispose() {
     _nameController.dispose();
+    _emailController.dispose();
     _phoneController.dispose();
     _pinController.dispose();
     _confirmPinController.dispose();
@@ -55,7 +58,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               Text(
                 _isBambara
                     ? 'Gundo-kodew tɛ kɛ kelen ye!'
-                    : 'Les deux codes PIN ne correspondent pas.',
+                    : 'Les deux mots de passe ne correspondent pas.',
               ),
             ],
           ),
@@ -66,18 +69,34 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _isLoading = true);
 
-    // Simulate account setup and local encryption key generation
-    await Future.delayed(const Duration(milliseconds: 700));
-
     if (!mounted) return;
 
     final appState = Provider.of<AppState>(context, listen: false);
     final chosenName = _nameController.text.trim().isNotEmpty
         ? _nameController.text.trim()
-        : (_isBambara ? "Kalan-Mɔgɔ" : "Sentinelle_223");
+        : (_isBambara ? "Kalan-Mogo" : "Sentinelle_223");
+    final username = chosenName.replaceAll(RegExp(r'\s+'), '_');
 
-    appState.updateUserName(chosenName);
-    appState.userSubtitle = _isBambara ? "Kɔnti lakana" : "Profil sécurisé";
+    try {
+      await appState.register(
+        username: username,
+        email: _emailController.text.trim(),
+        password: _pinController.text,
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.riskCritical,
+          behavior: SnackBarBehavior.floating,
+          content: Text(e.message),
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

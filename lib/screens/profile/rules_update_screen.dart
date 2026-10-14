@@ -14,18 +14,29 @@ class RulesUpdateScreen extends StatefulWidget {
 class _RulesUpdateScreenState extends State<RulesUpdateScreen> {
   bool _isChecking = false;
 
-  void _checkUpdates() {
+  Future<void> _checkUpdates() async {
     setState(() => _isChecking = true);
-    Future.delayed(const Duration(seconds: 2), () {
+    try {
+      await context.read<AppState>().syncDetectionRules();
       if (!mounted) return;
-      setState(() => _isChecking = false);
+      final version = context.read<AppState>().rulesVersion;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Vos règles de détection sont à jour (v2.4.1) !"),
+        SnackBar(
+          content: Text('Règles synchronisées ($version)'),
           behavior: SnackBarBehavior.floating,
         ),
       );
-    });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Sync impossible : $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isChecking = false);
+    }
   }
 
   @override
@@ -75,7 +86,7 @@ class _RulesUpdateScreenState extends State<RulesUpdateScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Règles v2.4.1',
+                          appState.rulesVersion,
                           style: AppTypography.titleSmall.copyWith(
                             fontWeight: FontWeight.w800,
                             fontSize: 17,
@@ -83,7 +94,9 @@ class _RulesUpdateScreenState extends State<RulesUpdateScreen> {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          'Mise à jour du 02/10/2026',
+                          appState.backendReachable
+                              ? 'Connecté au serveur Sentinelle'
+                              : 'Serveur non joignable',
                           style: AppTypography.bodySmall.copyWith(
                             color: AppColors.textSecondary,
                             fontSize: 13,

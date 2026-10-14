@@ -3,9 +3,16 @@ import '../models/analysis_result.dart';
 import '../models/history_item.dart';
 import '../models/report_item.dart';
 import '../models/risk_level.dart';
+import '../services/api_exception.dart';
+import '../services/sentinelle_api.dart';
+import '../services/token_storage.dart';
 
 class AppState extends ChangeNotifier {
-  // Navigation
+  AppState({SentinelleApi? api}) : _api = api ?? SentinelleApi();
+
+  final SentinelleApi _api;
+  final TokenStorage _tokens = TokenStorage();
+
   int _currentNavIndex = 0;
   int get currentNavIndex => _currentNavIndex;
 
@@ -14,17 +21,20 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // User Profile & Settings
-  String userName = "Aïcha";
-  String userSubtitle = "Compte protégé";
-  String language = "FR"; // "FR" or "BM"
+  String userName = 'Citoyen';
+  String userSubtitle = 'Mode visiteur';
+  String? userEmail;
+  bool isLoggedIn = false;
+  bool backendReachable = false;
+  String language = 'FR';
   bool audioVoiceOver = false;
   bool permissionSms = true;
   bool permissionOverlay = false;
   bool permissionNotifications = true;
   bool wifiOnlyRules = true;
   bool offlineMode = false;
-  String rulesVersion = "v2.4.1 · 02/10/2026";
+  String rulesVersion = 'En attente de sync';
+  String? lastApiError;
 
   void updateUserName(String newName) {
     userName = newName;
@@ -58,7 +68,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Audio Playback Simulation for Bambara
   bool isAudioPlaying = false;
   String? currentlyPlayingText;
 
@@ -97,7 +106,6 @@ class AppState extends ChangeNotifier {
     });
   }
 
-  // History Data
   final List<HistoryItem> _history = [];
   List<HistoryItem> get history => _history;
 
@@ -156,40 +164,9 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Scam Reports List
-  final List<ReportItem> _reports = [
-    ReportItem(
-      id: 'rep_1',
-      title: 'Faux gain',
-      dateText: '03/10/2026 · 08:29',
-      status: 'Envoyé',
-      details: 'SMS reçu annonçant 500 000 FCFA avec demande de code PIN.',
-    ),
-    ReportItem(
-      id: 'rep_2',
-      title: 'Faux agent MM',
-      dateText: '03/10/2026 · 11:29',
-      status: 'Envoyé',
-      details: 'Appel téléphonique se présentant comme agent Orange Money réclamant le code secret.',
-    ),
-  ];
+  final List<ReportItem> _reports = [];
   List<ReportItem> get reports => _reports;
 
-  void addReport(String title, String details) {
-    _reports.insert(
-      0,
-      ReportItem(
-        id: 'rep_${DateTime.now().millisecondsSinceEpoch}',
-        title: title,
-        dateText: '03/10/2026 · 14:15',
-        status: 'Envoyé',
-        details: details,
-      ),
-    );
-    notifyListeners();
-  }
-
-  // Victim Guide Emergency Checkpoints
   String victimSelectedSituation = "J'ai donné mon PIN / OTP";
   final Set<int> _completedVictimSteps = {};
   Set<int> get completedVictimSteps => _completedVictimSteps;
@@ -209,155 +186,289 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  AppState() {
-    _initDefaultHistory();
+  Future<void> bootstrap() async {
+    try {
+      await syncDetectionRules();
+    } catch (_) {}
+    try {
+      final me = await _api.currentUser();
+      if (me != null) {
+        isLoggedIn = true;
+        userName = me['username'] as String? ?? userName;
+        userEmail = me['email'] as String?;
+        userSubtitle = 'Compte protégé';
+        backendReachable = true;
+      } else {
+        final saved = await _tokens.username;
+        if (saved != null && saved.isNotEmpty) {
+          userName = saved;
+        }
+      }
+    } catch (_) {
+      isLoggedIn = false;
+      userSubtitle = 'Mode visiteur';
+    }
+    notifyListeners();
   }
 
-  void _initDefaultHistory() {
-    final sample1Result = AnalysisResult(
-      id: 'res_1',
-      type: 'SMS',
-      query: 'Orange Money : Vous avez gagné 500 000 FCFA ! Envoyez votre code PIN au 7X XX XX...',
-      score: 100,
-      riskLevel: RiskLevel.critique,
-      verdictFr: "Tentative d'arnaque certaine. Ne répondez jamais.",
-      verdictBm: "Ngalon don ! I kani i ka kɔdi di mɔgɔ si ma.",
-      adviceHeadline: "Ne donnez pas votre PIN ni votre OTP",
-      adviceBody: "Aucun opérateur ne vous demandera votre code. Raccrochez maintenant.",
-      reasons: [
-        "312 signalements de la communauté",
-        "Type : Faux agent Mobile Money",
-        "Demande explicite de code confidentiel",
-      ],
-      highlightedText: "Orange Money : Vous avez gagné 500 000 FCFA ! Envoyez votre code PIN",
-      sender: "+223 76 12 34 56",
-      timestamp: DateTime.now(),
-      isStopAlert: true,
+  Future<void> login(String usernameOrEmail, String password) async {
+    final session = await _api.login(
+      usernameOrEmail: usernameOrEmail.trim(),
+      password: password,
     );
-
-    final sample2Result = AnalysisResult(
-      id: 'res_2',
-      type: 'SMS',
-      query: "Bonjour, c'est Fatoumata. Le marché c'est demain à 9h, n'oublie pas le tissu.",
-      score: 8,
-      riskLevel: RiskLevel.faible,
-      verdictFr: "Aucun signe de fraude détecté. Restez prudent.",
-      verdictBm: "Kojugu si t'a kɔnɔ. I janto i yɛrɛ la.",
-      adviceHeadline: "Vous pouvez continuer, restez prudent",
-      adviceBody: "Le contenu correspond à un échange personnel sans sollicitation financière.",
-      reasons: [
-        "Aucun signal suspect",
-        "Aucun lien externe ni demande d'argent",
-      ],
-      highlightedText: "Bonjour, c'est Fatoumata. Le marché c'est demain à 9h, n'oublie pas le tissu.",
-      sender: "+223 70 44 22 11",
-      timestamp: DateTime.now(),
-    );
-
-    final sample3Result = AnalysisResult(
-      id: 'res_3',
-      type: 'SMS',
-      query: "Votre compte Moov sera mis à jour. Cliquez ici : bit.ly/moov-mali avant ce soir.",
-      score: 48,
-      riskLevel: RiskLevel.modere,
-      verdictFr: "Plusieurs signes suspects. Vérifiez avant d'agir.",
-      verdictBm: "Hakilitigiya kɛ ! Kana digi liyɛn nin kan.",
-      adviceHeadline: "Vérifiez auprès de votre opérateur",
-      adviceBody: "Les opérateurs officiels n'utilisent jamais de réducteurs de liens (bit.ly).",
-      reasons: [
-        "Faux blocage / mise à jour de compte",
-        "Marque d'opérateur citée par un inconnu",
-        "Lien raccourci suspect",
-      ],
-      highlightedText: "Votre compte Moov sera mis à jour. Cliquez ici : bit.ly/moov-mali avant ce soir.",
-      sender: "+223 99 88 77 66",
-      timestamp: DateTime.now().subtract(const Duration(days: 1)),
-    );
-
-    final sample4Result = AnalysisResult(
-      id: 'res_4',
-      type: 'Lien',
-      query: "orange-money-mali.xyz/remboursement-urgent",
-      score: 82,
-      riskLevel: RiskLevel.critique,
-      verdictFr: "Site frauduleux usurpant Orange Money.",
-      verdictBm: "Siteweb juguman don, i kana i ka kunnafoniw bila yen.",
-      adviceHeadline: "Ne cliquez pas sur ce lien",
-      adviceBody: "Le nom de domaine .xyz est fréquemment utilisé par les escrocs.",
-      reasons: [
-        "187 signalements de la communauté",
-        "Extension de domaine .xyz suspecte",
-        "Usurpation d'identité de marque bancaire",
-      ],
-      highlightedText: "orange-money-mali.xyz/remboursement-urgent",
-      timestamp: DateTime.now().subtract(const Duration(days: 1)),
-      isStopAlert: true,
-    );
-
-    _history.addAll([
-      HistoryItem(
-        id: 'hist_1',
-        type: 'SMS',
-        maskedText: 'Or███ Mo███ : Vo███ av███ ga...',
-        originalText: 'Orange Money : Vous avez gagné 500 000 FCFA !',
-        score: 100,
-        riskLevel: RiskLevel.critique,
-        dateGroup: "Aujourd'hui",
-        createdAt: DateTime.now(),
-        result: sample1Result,
-      ),
-      HistoryItem(
-        id: 'hist_2',
-        type: 'SMS',
-        maskedText: "Bo███, c'es Fa███. L...",
-        originalText: "Bonjour, c'est Fatoumata. Le marché c'est demain...",
-        score: 8,
-        riskLevel: RiskLevel.faible,
-        dateGroup: "Aujourd'hui",
-        createdAt: DateTime.now(),
-        result: sample2Result,
-      ),
-      HistoryItem(
-        id: 'hist_3',
-        type: 'SMS',
-        maskedText: 'Vo███ co███ Mo███ se███ mi███...',
-        originalText: 'Votre compte Moov sera mis à jour. Cliquez...',
-        score: 48,
-        riskLevel: RiskLevel.modere,
-        dateGroup: "Hier",
-        createdAt: DateTime.now().subtract(const Duration(days: 1)),
-        result: sample3Result,
-      ),
-      HistoryItem(
-        id: 'hist_4',
-        type: 'Lien',
-        maskedText: 'or███-mo███-ma███.xy█/re███...',
-        originalText: 'orange-money-mali.xyz/remboursement',
-        score: 82,
-        riskLevel: RiskLevel.critique,
-        dateGroup: "Hier",
-        createdAt: DateTime.now().subtract(const Duration(days: 1)),
-        result: sample4Result,
-      ),
-    ]);
+    isLoggedIn = true;
+    backendReachable = true;
+    userName = session.username.isNotEmpty ? session.username : usernameOrEmail;
+    userSubtitle = 'Compte protégé';
+    lastApiError = null;
+    notifyListeners();
   }
 
-  AnalysisResult analyzeInput({
+  Future<void> register({
+    required String username,
+    required String email,
+    required String password,
+  }) async {
+    final session = await _api.register(
+      username: username.trim(),
+      email: email.trim(),
+      password: password,
+    );
+    isLoggedIn = true;
+    backendReachable = true;
+    userName = session.username.isNotEmpty ? session.username : username;
+    userEmail = email.trim();
+    userSubtitle = 'Profil sécurisé';
+    lastApiError = null;
+    notifyListeners();
+  }
+
+  Future<void> logout() async {
+    await _api.logout();
+    isLoggedIn = false;
+    userName = 'Citoyen';
+    userEmail = null;
+    userSubtitle = 'Mode visiteur';
+    notifyListeners();
+  }
+
+  Future<void> submitReport({
+    required String title,
+    required String details,
+    String type = 'SMS',
+    int? riskScore,
+    String? riskLevel,
+  }) async {
+    final apiType = _reportTypeFor(type);
+    final lang = language.toLowerCase() == 'bm' ? 'bm' : 'fr';
+    final level = (riskLevel ?? 'MEDIUM').toUpperCase();
+    final remote = await _api.createReport(
+      language: lang,
+      category: title,
+      riskLevel: level,
+      riskScore: riskScore,
+      reportType: apiType,
+      targetValue: details.length > 180 ? details.substring(0, 180) : details,
+      reasonCodes: title,
+      anonymous: !isLoggedIn,
+    );
+
+    final createdAt = remote['createdAt']?.toString();
+    _reports.insert(
+      0,
+      ReportItem(
+        id: remote['id']?.toString() ?? 'rep_${DateTime.now().millisecondsSinceEpoch}',
+        title: title,
+        dateText: _formatNow(createdAt),
+        status: _statusLabel(remote['status']?.toString()),
+        details: details,
+      ),
+    );
+    notifyListeners();
+  }
+
+  Future<void> syncDetectionRules() async {
+    final payload = await _api.latestModel();
+    backendReachable = true;
+    final version = payload['modelVersion'];
+    if (version is Map<String, dynamic>) {
+      final label = version['version'] as String? ?? 'sync';
+      rulesVersion = 'v$label';
+    } else {
+      final patterns = await _api.syncPatterns(
+        language: language.toLowerCase() == 'bm' ? 'bm' : 'fr',
+      );
+      rulesVersion = '${patterns.length} règles actives';
+    }
+    notifyListeners();
+  }
+
+  Future<AnalysisResult> analyzeInput({
     required String type,
     required String content,
     bool askPin = false,
     bool isUrgent = false,
     bool askPayment = false,
     String? situationTag,
+  }) async {
+    final enriched = _enrichContent(
+      type: type,
+      content: content,
+      askPin: askPin,
+      isUrgent: isUrgent,
+      askPayment: askPayment,
+      situationTag: situationTag,
+    );
+
+    AnalysisResult result;
+    try {
+      if (offlineMode) {
+        result = _analyzeLocally(type: type, content: enriched, askPin: askPin, isUrgent: isUrgent, askPayment: askPayment);
+      } else {
+        result = await _analyzeRemote(type: type, content: enriched);
+      }
+    } on ApiException {
+      result = _analyzeLocally(type: type, content: enriched, askPin: askPin, isUrgent: isUrgent, askPayment: askPayment);
+      lastApiError = 'Analyse locale (serveur indisponible)';
+    } catch (_) {
+      result = _analyzeLocally(type: type, content: enriched, askPin: askPin, isUrgent: isUrgent, askPayment: askPayment);
+    }
+
+    _history.insert(
+      0,
+      HistoryItem(
+        id: 'hist_${DateTime.now().millisecondsSinceEpoch}',
+        type: type,
+        maskedText: _mask(content),
+        originalText: content,
+        score: result.score,
+        riskLevel: result.riskLevel,
+        dateGroup: "Aujourd'hui",
+        createdAt: DateTime.now(),
+        result: result,
+      ),
+    );
+    notifyListeners();
+    return result;
+  }
+
+  String _enrichContent({
+    required String type,
+    required String content,
+    required bool askPin,
+    required bool isUrgent,
+    required bool askPayment,
+    String? situationTag,
+  }) {
+    if (type != 'Mobile Money') return content;
+    final extras = <String>[
+      if (situationTag != null) situationTag,
+      if (askPin) 'demande PIN code secret OTP',
+      if (isUrgent) 'urgent immédiat compte bloqué',
+      if (askPayment) 'paiement transfert argent',
+    ];
+    return '$content ${extras.join(' ')}'.trim();
+  }
+
+  Future<AnalysisResult> _analyzeRemote({
+    required String type,
+    required String content,
+  }) async {
+    final lang = language.toLowerCase() == 'bm' ? 'bm' : 'fr';
+    Map<String, dynamic> payload;
+    switch (type) {
+      case 'Lien':
+        payload = await _api.analyze(url: content, language: lang);
+        break;
+      case 'Numéro':
+        payload = await _api.analyze(phone: content, language: lang);
+        break;
+      default:
+        payload = await _api.analyze(text: content, language: lang);
+    }
+    backendReachable = true;
+    lastApiError = null;
+    return _mapAnalyzeResponse(payload, type: type, content: content);
+  }
+
+  AnalysisResult _mapAnalyzeResponse(
+    Map<String, dynamic> json, {
+    required String type,
+    required String content,
+  }) {
+    final score = (json['riskScore'] as num?)?.toInt() ?? 0;
+    final band = json['riskBand'] as String?;
+    final level = json['riskLevel'] as String?;
+    final highRisk = json['highRiskAlert'] == true;
+    final recommendation = json['recommendation'] as String? ??
+        'Restez prudent face aux demandes inhabituelles.';
+    final signals = json['signals'];
+    final reasons = <String>[];
+    if (signals is List) {
+      for (final item in signals) {
+        if (item is Map<String, dynamic>) {
+          final label = item['label'] as String? ?? item['code'] as String? ?? '';
+          final explanation = item['explanation'] as String? ?? '';
+          if (label.isNotEmpty) {
+            reasons.add(explanation.isNotEmpty ? '$label : $explanation' : label);
+          }
+        }
+      }
+    }
+    if (reasons.isEmpty) {
+      reasons.add('Analyse serveur Sentinelle Mali');
+    }
+
+    final risk = _riskFromApi(band, level, score);
+    return AnalysisResult(
+      id: 'res_${DateTime.now().millisecondsSinceEpoch}',
+      type: type,
+      query: content,
+      score: score,
+      riskLevel: risk,
+      verdictFr: recommendation,
+      verdictBm: language == 'BM'
+          ? recommendation
+          : "I janto i yɛrɛ la. Kana i ka kɔdi di mɔgɔ si ma.",
+      adviceHeadline: highRisk
+          ? 'Ne donnez pas votre PIN ni votre OTP'
+          : recommendation,
+      adviceBody: recommendation,
+      reasons: reasons,
+      highlightedText: content,
+      timestamp: DateTime.now(),
+      isStopAlert: highRisk || risk == RiskLevel.critique,
+      sender: type == 'Numéro' ? content : null,
+    );
+  }
+
+  RiskLevel _riskFromApi(String? band, String? level, int score) {
+    final merged = '${band ?? ''} ${level ?? ''}'.toUpperCase();
+    if (merged.contains('CRIT') || score > 80) return RiskLevel.critique;
+    if (merged.contains('ELEVE') || merged.contains('HIGH') || score > 60) {
+      return RiskLevel.eleve;
+    }
+    if (merged.contains('MODER') || merged.contains('MEDIUM') || score > 30) {
+      return RiskLevel.modere;
+    }
+    return RiskLevel.faible;
+  }
+
+  AnalysisResult _analyzeLocally({
+    required String type,
+    required String content,
+    bool askPin = false,
+    bool isUrgent = false,
+    bool askPayment = false,
   }) {
     final lower = content.toLowerCase();
     int calculatedScore = 15;
     RiskLevel calculatedLevel = RiskLevel.faible;
     List<String> reasons = [];
-    String verdictFr = "Aucun signe de fraude détecté. Restez prudent.";
+    String verdictFr = 'Aucun signe de fraude détecté. Restez prudent.';
     String verdictBm = "Kojugu si t'a kɔnɔ. I janto i yɛrɛ la.";
-    String headline = "Vous pouvez continuer, restez prudent";
-    String? body = "Le message semble régulier mais gardez vos réflexes de sécurité.";
+    String headline = 'Vous pouvez continuer, restez prudent';
+    String? body = 'Le message semble régulier mais gardez vos réflexes de sécurité.';
     bool isStop = false;
 
     final hasPinOtp = lower.contains('pin') ||
@@ -392,12 +503,12 @@ class AppState extends ChangeNotifier {
       isStop = true;
       verdictFr = "Tentative d'arnaque presque certaine. Ne répondez pas.";
       verdictBm = "Ngalon don ! I kani i ka kɔdi di mɔgɔ si ma.";
-      headline = "Ne donnez pas votre PIN ni votre OTP";
+      headline = 'Ne donnez pas votre PIN ni votre OTP';
       body = "Aucun opérateur ne vous demandera votre code. Raccrochez maintenant.";
       reasons = [
-        "312 signalements de la communauté",
-        "Type : Faux agent Mobile Money",
-        if (hasPinOtp) "Demande de mot de passe ou code confidentiel",
+        'Analyse locale (hors-ligne)',
+        'Type : Faux agent Mobile Money',
+        if (hasPinOtp) 'Demande de mot de passe ou code confidentiel',
         if (hasOperatorSpoof) "Usurpation de l'identité d'un opérateur téléphonique",
       ];
     } else if (hasSuspiciousLink || (hasUrgent && askPayment)) {
@@ -405,34 +516,21 @@ class AppState extends ChangeNotifier {
       calculatedLevel = RiskLevel.modere;
       verdictFr = "Plusieurs signes suspects. Vérifiez avant d'agir.";
       verdictBm = "Hakilitigiya kɛ ! Kana digi liyɛn nin kan.";
-      headline = "Vérifiez auprès de votre opérateur";
-      body = "Ce message incite à une action rapide via un canal non certifié.";
+      headline = 'Vérifiez auprès de votre opérateur';
+      body = 'Ce message incite à une action rapide via un canal non certifié.';
       reasons = [
-        "Faux blocage / mise à jour de compte",
-        "Marque d'opérateur citée par un inconnu",
-        if (hasSuspiciousLink) "Lien raccourci ou suspect",
-      ];
-    } else if (content.contains('76 12 34 56') || lower.contains('76123456')) {
-      calculatedScore = 92;
-      calculatedLevel = RiskLevel.critique;
-      isStop = true;
-      verdictFr = "Numéro fortement signalé par les utilisateurs.";
-      verdictBm = "Nin nimɔrɔ man ɲi ! Mɔgɔ caman y'ajira ko ngalonkɛla don.";
-      headline = "Bloquez ce numéro immédiatement";
-      body = "Plusieurs signalements confirment des appels de faux agents Mobile Money.";
-      reasons = [
-        "312 signalements de la communauté",
-        "Type : Faux agent Mobile Money",
-        "+223 76 12 34 56",
+        'Analyse locale (hors-ligne)',
+        'Faux blocage / mise à jour de compte',
+        if (hasSuspiciousLink) 'Lien raccourci ou suspect',
       ];
     } else {
       reasons = [
-        "Aucun signal suspect identifié",
-        "Pas de lien ou de demande financière",
+        'Analyse locale (hors-ligne)',
+        'Aucun signal suspect identifié',
       ];
     }
 
-    final newResult = AnalysisResult(
+    return AnalysisResult(
       id: 'res_${DateTime.now().millisecondsSinceEpoch}',
       type: type,
       query: content,
@@ -446,30 +544,42 @@ class AppState extends ChangeNotifier {
       highlightedText: content,
       timestamp: DateTime.now(),
       isStopAlert: isStop,
-      sender: type == 'Numéro' ? content : '+223 76 12 34 56',
+      sender: type == 'Numéro' ? content : null,
     );
+  }
 
-    String masked = content;
+  String _mask(String content) {
     if (content.length > 25) {
-      masked = "${content.substring(0, 5)}███ ${content.substring(8, 12)}███...";
+      return '${content.substring(0, 5)}███ ${content.substring(8, content.length.clamp(12, 12))}███...';
     }
+    return content;
+  }
 
-    _history.insert(
-      0,
-      HistoryItem(
-        id: 'hist_${DateTime.now().millisecondsSinceEpoch}',
-        type: type,
-        maskedText: masked,
-        originalText: content,
-        score: calculatedScore,
-        riskLevel: calculatedLevel,
-        dateGroup: "Aujourd'hui",
-        createdAt: DateTime.now(),
-        result: newResult,
-      ),
-    );
+  String _reportTypeFor(String type) {
+    switch (type) {
+      case 'Lien':
+        return 'LINK';
+      case 'Numéro':
+        return 'PHONE';
+      default:
+        return 'MESSAGE';
+    }
+  }
 
-    notifyListeners();
-    return newResult;
+  String _statusLabel(String? status) {
+    switch (status) {
+      case 'VALIDATED':
+        return 'Validé';
+      case 'REJECTED':
+        return 'Rejeté';
+      case 'PENDING':
+      default:
+        return 'Envoyé';
+    }
+  }
+
+  String _formatNow(String? iso) {
+    final now = DateTime.now();
+    return '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} · ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
   }
 }

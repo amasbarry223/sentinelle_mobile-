@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/app_state.dart';
+import '../../services/api_exception.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_typography.dart';
 import 'thank_you_screen.dart';
@@ -22,6 +23,7 @@ class ReportScreen extends StatefulWidget {
 
 class _ReportScreenState extends State<ReportScreen> {
   String _selectedCategory = 'Demande PIN/OTP';
+  bool _isSubmitting = false;
 
   final List<String> _categories = const [
     'Faux agent MM',
@@ -35,14 +37,31 @@ class _ReportScreenState extends State<ReportScreen> {
     'Autre',
   ];
 
-  void _submitReport() {
-    context.read<AppState>().addReport(
-          _selectedCategory,
-          widget.prefilledContent,
-        );
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (context) => const ThankYouScreen()),
-    );
+  Future<void> _submitReport() async {
+    if (_isSubmitting) return;
+    setState(() => _isSubmitting = true);
+    try {
+      await context.read<AppState>().submitReport(
+            title: _selectedCategory,
+            details: widget.prefilledContent,
+            type: widget.initialType,
+          );
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const ThankYouScreen()),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppColors.riskCritical,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -183,8 +202,14 @@ class _ReportScreenState extends State<ReportScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
               child: ElevatedButton(
-                onPressed: _submitReport,
-                child: const Text('Suivant'),
+                onPressed: _isSubmitting ? null : _submitReport,
+                child: _isSubmitting
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                      )
+                    : const Text('Suivant'),
               ),
             ),
           ],
